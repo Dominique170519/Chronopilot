@@ -31,9 +31,6 @@ function norm(s: string) {
   return s.replace(/\s+/g, "").replace(/[^\w\u4e00-\u9fff]/g, "").toLowerCase();
 }
 
-/**
- * 判断 schedule 项是否匹配用户原始任务
- */
 function isUserTask(item: ReturnType<typeof normalizeScheduleItems>[0], userTasks: Task[]) {
   if (!userTasks || userTasks.length === 0) return false;
   const itemNorm = norm(item.title);
@@ -43,29 +40,13 @@ function isUserTask(item: ReturnType<typeof normalizeScheduleItems>[0], userTask
   });
 }
 
-// ── 时间轴常量 ───────────────────────────────────────────────────────────────
-const DAY_START = 8;   // 08:00
-const DAY_END   = 23;  // 23:00
-const PX_PER_H  = 72;  // 每小时像素高度
-const TOTAL_PX  = (DAY_END - DAY_START) * PX_PER_H; // 1080px
-
-function timeToPx(time: string | undefined): number {
-  const min = parseTime(time);
-  if (isNaN(min)) return -1;
-  return ((min - DAY_START * 60) / 60) * PX_PER_H;
-}
-
-function durToPx(duration: number): number {
-  return (duration / 60) * PX_PER_H;
-}
-
 // ── 类型配置 ─────────────────────────────────────────────────────────────────
-const typeConfig: Record<string, { bg: string; border: string; label: string; text: string; dot: string }> = {
-  focus:    { bg: "bg-blue-500/20",   border: "border-l-blue-400",    label: "深度工作", text: "text-blue-200",  dot: "bg-blue-400" },
-  light:    { bg: "bg-white/8",       border: "border-l-white/50",    label: "轻任务",   text: "text-white/75",  dot: "bg-white/50" },
-  recovery: { bg: "bg-green-500/15",  border: "border-l-green-400",   label: "恢复",     text: "text-green-200", dot: "bg-green-400" },
-  flex:     { bg: "bg-orange-500/15", border: "border-l-orange-400",  label: "弹性时间", text: "text-orange-200",dot: "bg-orange-400" },
-  buffer:   { bg: "bg-white/4",       border: "border-l-white/25",    label: "过渡",     text: "text-white/45",  dot: "bg-white/25" },
+const typeConfig: Record<string, { bg: string; border: string; label: string; text: string; dot: string; chipBg: string }> = {
+  focus:    { bg: "bg-blue-500/20",   border: "border-l-blue-400",    label: "深度工作", text: "text-blue-200",  dot: "bg-blue-400",   chipBg: "bg-blue-500/25" },
+  light:    { bg: "bg-white/8",       border: "border-l-white/50",    label: "轻任务",   text: "text-white/75",  dot: "bg-white/50",   chipBg: "bg-white/10" },
+  recovery: { bg: "bg-green-500/15",  border: "border-l-green-400",   label: "恢复",     text: "text-green-200", dot: "bg-green-400",  chipBg: "bg-green-500/20" },
+  flex:     { bg: "bg-orange-500/15", border: "border-l-orange-400",  label: "弹性时间", text: "text-orange-200",dot: "bg-orange-400", chipBg: "bg-orange-500/20" },
+  buffer:   { bg: "bg-white/4",       border: "border-l-white/25",    label: "过渡",     text: "text-white/45",  dot: "bg-white/25",   chipBg: "bg-white/6" },
 };
 
 const modeLabel: Record<ScheduleMode, string> = {
@@ -94,22 +75,16 @@ function SkeletonLoader() {
       </div>
       <div className="rounded-3xl border border-white/10 bg-white/5 overflow-hidden p-5">
         <div className="h-3 w-24 rounded bg-white/5 mb-4" />
-        <div className="flex" style={{ height: `${TOTAL_PX}px` }}>
-          <div className="w-12 shrink-0">
-            {Array.from({ length: 16 }, (_, i) => (
-              <div key={i} style={{ height: `${PX_PER_H}px` }} className="flex items-end pb-1 justify-end pr-3">
-                <div className="h-2 w-6 rounded bg-white/5" />
-              </div>
-            ))}
-          </div>
-          <div className="flex-1 relative border-l border-white/[0.04]">
-            {Array.from({ length: 16 }, (_, i) => (
-              <div key={i} style={{ height: `${PX_PER_H}px` }} className="border-t border-white/[0.04]" />
-            ))}
-            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/20 border border-l-2 border-l-blue-400" style={{ top: "0px", height: "90px" }} />
-            <div className="absolute left-1 right-1 rounded-xl bg-white/3 border border-l-2 border-l-green-400" style={{ top: "96px", height: "48px" }} />
-            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/20 border border-l-2 border-l-blue-400" style={{ top: "150px", height: "84px" }} />
-          </div>
+        <div className="space-y-3">
+          {[
+            { h: 60, w: "w-3/4" }, { h: 44, w: "w-1/2" }, { h: 36, w: "w-5/6" },
+            { h: 60, w: "w-2/3" }, { h: 44, w: "w-1/2" }, { h: 60, w: "w-4/5" },
+          ].map((b, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="h-4 w-12 rounded bg-white/5 shrink-0" />
+              <div className={`h-4 ${b.w} rounded bg-white/5`} />
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -146,6 +121,58 @@ function EmptyState() {
   );
 }
 
+// ── 单条任务行 ────────────────────────────────────────────────────────────────
+interface RowProps {
+  item: ReturnType<typeof normalizeScheduleItems>[0];
+  isUser: boolean;
+  isLast?: boolean;
+}
+
+function ScheduleRow({ item, isUser }: RowProps) {
+  const cfg = typeConfig[item.type] || typeConfig.buffer;
+
+  return (
+    <div className={`flex gap-3 ${isUser ? "" : "opacity-70"}`}>
+      {/* 时间 */}
+      <div className="w-12 shrink-0 pt-2">
+        <div className="text-xs font-mono font-medium text-white/50 tabular-nums leading-none">
+          {item.startTime}
+        </div>
+        <div className="text-[10px] text-white/25 mt-0.5 leading-none">至 {item.endTime}</div>
+      </div>
+
+      {/* 纵线 + 圆点 */}
+      <div className="flex flex-col items-center shrink-0">
+        <div className={`w-2 h-2 rounded-full mt-2 ${cfg.dot} ring-2 ring-white/10`} />
+        <div className="flex-1 w-px bg-white/[0.06]" />
+      </div>
+
+      {/* 内容卡片 */}
+      <div className={`flex-1 min-w-0 mb-3 rounded-2xl border-l-4 ${cfg.bg} ${cfg.border} px-3 py-2.5`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-sm font-medium leading-snug ${isUser ? cfg.text : "text-white/60"}`}>
+            {item.title}
+          </span>
+          <span className={`shrink-0 text-[10px] px-1.5 py-px rounded-full ${cfg.chipBg} ${cfg.text} border border-white/10`}>
+            {cfg.label}
+          </span>
+          <span className="shrink-0 text-[10px] text-white/30">
+            {item.duration >= 60
+              ? `${Math.floor(item.duration / 60)}h${item.duration % 60 ? item.duration % 60 + "m" : ""}`
+              : `${item.duration}m`}
+          </span>
+        </div>
+        {item.reason && (
+          <p className={`text-xs mt-1.5 leading-relaxed ${isUser ? cfg.text : "text-white/35"}`}
+             style={{ opacity: isUser ? 0.7 : 1 }}>
+            {item.reason}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 export default function ScheduleResult({
   result, loading, error, mode, energy,
@@ -163,14 +190,12 @@ export default function ScheduleResult({
   );
   if (!result) return <EmptyState />;
 
-  // ── 数据 ────────────────────────────────────────────────────────────────────
   const rawSchedule = Array.isArray(result)
     ? result
     : result.schedule ?? (result as any).items ?? (result as any).data ?? [];
 
   const allItems = normalizeScheduleItems(rawSchedule);
 
-  // 按开始时间排序
   const sortedItems = [...allItems].sort((a, b) => {
     const aT = parseTime(a.startTime);
     const bT = parseTime(b.startTime);
@@ -182,8 +207,6 @@ export default function ScheduleResult({
   const droppedTasks: { task: string; reason?: string }[] = Array.isArray(result)
     ? []
     : (result.droppedTasks ?? []);
-
-  const hours = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
 
   return (
     <div className="space-y-4">
@@ -218,94 +241,19 @@ export default function ScheduleResult({
           <p className="text-xs text-white/20">从早到晚 · {sortedItems.length} 个时段</p>
         </div>
 
-        {/* 时间轴主体 */}
-        <div className="flex px-5 pb-4" style={{ height: `${TOTAL_PX}px` }}>
-          {/* 左：小时刻度 */}
-          <div className="w-12 shrink-0">
-            {hours.map((h) => (
-              <div
-                key={h}
-                className="flex items-end justify-end pr-3"
-                style={{ height: `${PX_PER_H}px` }}
-              >
-                <span className="text-[10px] text-white/25 tabular-nums">
-                  {String(h).padStart(2, "0")}:00
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* 右：内容区 */}
-          <div className="flex-1 relative border-l border-white/[0.04]">
-            {/* 水平网格线 */}
-            {hours.map((h) => (
-              <div
-                key={h}
-                className="absolute left-0 right-0 border-t border-white/[0.04]"
-                style={{ top: `${(h - DAY_START) * PX_PER_H}px` }}
-              />
-            ))}
-
-            {/* 现在时间指示线 */}
-            {(() => {
-              const now = new Date();
-              const nowMin = now.getHours() * 60 + now.getMinutes();
-              if (nowMin >= DAY_START * 60 && nowMin < DAY_END * 60) {
-                const topPx = ((nowMin - DAY_START * 60) / 60) * PX_PER_H;
-                return (
-                  <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: `${topPx}px` }}>
-                    <div className="w-2 h-2 rounded-full bg-red-400 -ml-px shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
-                    <div className="flex-1 h-px bg-red-400/40" />
-                  </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* 任务块 */}
-            {sortedItems.map((item, i) => {
-              const topPx = timeToPx(item.startTime);
-              if (topPx < 0) return null;
-
-              const heightPx = durToPx(item.duration);
-              const cfg = typeConfig[item.type] || typeConfig.buffer;
-              const isUser = isUserTask(item, userTasks);
-
-              return (
-                <div
-                  key={i}
-                  className="absolute left-1 right-1 overflow-hidden"
-                  style={{ top: `${topPx}px`, height: `${heightPx}px` }}
-                >
-                  {isUser ? (
-                    // 用户任务：有色块
-                    <div className={`w-full h-full rounded-xl border-l-2 ${cfg.bg} ${cfg.border} px-2.5 py-1.5 overflow-hidden flex flex-col justify-between`}>
-                      <div className="flex items-baseline gap-1.5 min-w-0">
-                        <span className="text-[10px] font-mono text-white/40 shrink-0 tabular-nums leading-none">{item.startTime}</span>
-                        <span className={`text-xs font-medium leading-snug truncate ${cfg.text}`}>{item.title}</span>
-                      </div>
-                      <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                        <span className={`shrink-0 text-[9px] px-1 py-px rounded border ${cfg.bg} ${cfg.text} border-white/10`}>{cfg.label}</span>
-                        <span className={`text-[9px] leading-relaxed ${cfg.text} opacity-60 line-clamp-1 overflow-hidden`}>{item.reason}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    // AI 插入任务：仅文字，无色块
-                    <div className="w-full h-full flex flex-col justify-between pl-1">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[9px] font-mono text-white/25 shrink-0 tabular-nums leading-none">{item.startTime}</span>
-                        <span className="text-[10px] text-white/30 leading-snug truncate">{item.title}</span>
-                      </div>
-                      <div className="flex items-center gap-1 min-w-0">
-                        <span className="text-[8px] text-white/20 shrink-0">{cfg.label}</span>
-                        <span className="text-[8px] text-white/15 leading-snug truncate overflow-hidden">{item.reason}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+        {/* 滚动区域 */}
+        <div className="px-5 pb-4 max-h-[600px] overflow-y-auto">
+          {sortedItems.length === 0 && (
+            <p className="text-sm text-white/30 text-center py-8">暂无安排</p>
+          )}
+          {sortedItems.map((item, i) => (
+            <ScheduleRow
+              key={i}
+              item={item}
+              isUser={isUserTask(item, userTasks)}
+              isLast={i === sortedItems.length - 1}
+            />
+          ))}
         </div>
       </div>
 
