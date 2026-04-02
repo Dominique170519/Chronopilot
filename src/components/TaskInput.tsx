@@ -176,6 +176,31 @@ export default function TaskInput({ tasks, onChange }: Props) {
       {tasks.length === 0 && (
         <p className="text-xs text-white/20 text-center py-2">还没有添加任务</p>
       )}
+
+      {/* 总时长统计 */}
+      {tasks.length > 0 && (
+        (() => {
+          const totalMin = tasks.reduce((sum, t) => sum + (t.duration || 0), 0);
+          const h = Math.floor(totalMin / 60);
+          const m = totalMin % 60;
+          const isOverload = totalMin > 600; // 超过10小时警告
+          return (
+            <div className={`flex items-center gap-3 pt-3 mt-2 border-t border-white/8 ${isOverload ? "border-orange-500/30" : ""}`}>
+              <span className="text-xs text-white/30">
+                共 {tasks.length} 项
+              </span>
+              <span className={`text-xs font-medium ${isOverload ? "text-orange-400" : "text-white/50"}`}>
+                约 {h > 0 ? `${h}h` : ""}{m > 0 ? `${m}m` : ""} ({totalMin}min)
+              </span>
+              {isOverload && (
+                <span className="text-xs text-orange-400/80 ml-auto">
+                  时间偏多，请酌情精简
+                </span>
+              )}
+            </div>
+          );
+        })()
+      )}
     </div>
   );
 }

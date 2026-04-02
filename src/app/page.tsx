@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import GoalInput from "@/components/GoalInput";
 import TaskInput from "@/components/TaskInput";
 import SettingsPanel from "@/components/SettingsPanel";
@@ -58,6 +58,21 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // 键盘快捷键
+  const generateRef = useRef<() => void>(() => {});
+  generateRef.current = () => generateSchedule();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && e.key === "Enter" && !loading) { e.preventDefault(); generateRef.current(); }
+      if (e.key === "Escape") { setResult(null); setError(null); setToast(null); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [loading]);
 
   // Load persisted state
   useEffect(() => {
