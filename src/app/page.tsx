@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import GoalInput from "@/components/GoalInput";
 import TaskInput from "@/components/TaskInput";
 import SettingsPanel from "@/components/SettingsPanel";
@@ -11,6 +11,20 @@ import type {
   ScheduleMode,
   ScheduleResult as ScheduleResultType,
 } from "@/types";
+
+const STORAGE_KEY = "chronopilot_state";
+
+interface PersistedState {
+  goal: string;
+  tasks: Task[];
+  energy: EnergyLevel;
+  mode: ScheduleMode;
+  sleepBlock: boolean;
+  breakfast: boolean;
+  lunchBreak: boolean;
+  dinner: boolean;
+  unavailableBlocks: { start: string; end: string; reason?: string }[];
+}
 
 export default function Home() {
   const [goal, setGoal] = useState("");
@@ -28,6 +42,67 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Load persisted state from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed: PersistedState = JSON.parse(stored);
+        setGoal(parsed.goal ?? "");
+        setTasks(parsed.tasks ?? []);
+        setEnergy(parsed.energy ?? "medium");
+        setMode(parsed.mode ?? "efficient");
+        setSleepBlock(parsed.sleepBlock ?? true);
+        setBreakfast(parsed.breakfast ?? true);
+        setLunchBreak(parsed.lunchBreak ?? true);
+        setDinner(parsed.dinner ?? true);
+        setUnavailableBlocks(parsed.unavailableBlocks ?? []);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
+
+  // Persist state to localStorage on change
+  const persistState = useCallback(
+    (overrides?: Partial<PersistedState>) => {
+      const state: PersistedState = {
+        goal,
+        tasks,
+        energy,
+        mode,
+        sleepBlock,
+        breakfast,
+        lunchBreak,
+        dinner,
+        unavailableBlocks,
+        ...overrides,
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        // ignore storage errors
+      }
+    },
+    [goal, tasks, energy, mode, sleepBlock, breakfast, lunchBreak, dinner, unavailableBlocks]
+  );
+
+  // Wrapper setters that also persist
+  const setGoalAndPersist = (v: string) => { setGoal(v); setTimeout(() => persistState({ goal: v }), 0); };
+  const setTasksAndPersist = (v: Task[]) => { setTasks(v); setTimeout(() => persistState({ tasks: v }), 0); };
+  const setEnergyAndPersist = (v: EnergyLevel) => { setEnergy(v); setTimeout(() => persistState({ energy: v }), 0); };
+  const setModeAndPersist = (v: ScheduleMode) => { setMode(v); setTimeout(() => persistState({ mode: v }), 0); };
+  const setSleepBlockAndPersist = (v: boolean) => { setSleepBlock(v); setTimeout(() => persistState({ sleepBlock: v }), 0); };
+  const setBreakfastAndPersist = (v: boolean) => { setBreakfast(v); setTimeout(() => persistState({ breakfast: v }), 0); };
+  const setLunchBreakAndPersist = (v: boolean) => { setLunchBreak(v); setTimeout(() => persistState({ lunchBreak: v }), 0); };
+  const setDinnerAndPersist = (v: boolean) => { setDinner(v); setTimeout(() => persistState({ dinner: v }), 0); };
+  const setUnavailableBlocksAndPersist = (
+    v: { start: string; end: string; reason?: string }[]
+  ) => {
+    setUnavailableBlocks(v);
+    setTimeout(() => persistState({ unavailableBlocks: v }), 0);
+  };
+
   const getCurrentTime = () => {
     const now = new Date();
     return now.toLocaleString("zh-CN", {
@@ -41,10 +116,37 @@ export default function Home() {
   };
 
   const generateSchedule = async (overrideChanges?: string) => {
+    // Validation: at least one task
     if (tasks.length === 0) {
       setError("请至少添加一个任务");
       return;
     }
+
+    // Validation: each task has non-empty text
+    const emptyTask = tasks.find((t) => !t.text.trim());
+    if (emptyTask) {
+      setError("任务描述不能为空");
+      return;
+    }
+
+    // Validation: each task has positive duration
+    const zeroDuration = tasks.find((t) => t.duration <= 0);
+    if (zeroDuration) {
+      setError("任务时长必须大于 0 分钟");
+      return;
+    }
+
+    // Validation: unavailable blocks have end after start
+    const invalidBlock = unavailableBlocks.find((b) => {
+      const [sh, sm] = b.start.split(":").map(Number);
+      const [eh, em] = b.end.split(":").map(Number);
+      return sh * 60 + sm >= eh * 60 + em;
+    });
+    if (invalidBlock) {
+      setError(`不可用时段 "${invalidBlock.reason || invalidBlock.start}" 的结束时间必须晚于开始时间`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -122,12 +224,12 @@ export default function Home() {
 
             {/* 1. Goal */}
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-panel backdrop-blur-xl">
-              <GoalInput value={goal} onChange={setGoal} />
+              <GoalInput value={goal} onChange={setGoalAndPersist} />
             </div>
 
             {/* 2. Tasks */}
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-panel backdrop-blur-xl">
-              <TaskInput tasks={tasks} onChange={setTasks} />
+              <TaskInput tasks={tasks} onChange={setTasksAndPersist} />
             </div>
 
             {/* 3. Energy + 4. Mode */}
@@ -135,8 +237,8 @@ export default function Home() {
               <SettingsPanel
                 energy={energy}
                 mode={mode}
-                onEnergyChange={setEnergy}
-                onModeChange={setMode}
+                onEnergyChange={setEnergyAndPersist}
+                onModeChange={setModeAndPersist}
               />
             </div>
 
@@ -148,11 +250,11 @@ export default function Home() {
                 lunchBreak={lunchBreak}
                 dinner={dinner}
                 unavailableBlocks={unavailableBlocks}
-                onSleepChange={setSleepBlock}
-                onBreakfastChange={setBreakfast}
-                onLunchChange={setLunchBreak}
-                onDinnerChange={setDinner}
-                onUnavailableChange={setUnavailableBlocks}
+                onSleepChange={setSleepBlockAndPersist}
+                onBreakfastChange={setBreakfastAndPersist}
+                onLunchChange={setLunchBreakAndPersist}
+                onDinnerChange={setDinnerAndPersist}
+                onUnavailableChange={setUnavailableBlocksAndPersist}
               />
             </div>
 
