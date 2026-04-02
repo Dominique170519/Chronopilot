@@ -143,19 +143,42 @@ export async function POST(req: NextRequest) {
     const textBlock = message.content.find((block) => block.type === "text");
     const rawText = textBlock?.type === "text" ? textBlock.text : "";
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        return NextResponse.json(
-          { error: "AI 返回格式有误，请重试" },
-          { status: 500 }
-        );
+    /** 尝试用多种方式解析 JSON，返回第一个成功的 */
+    function tryParseJSON(text: string): unknown | null {
+      // 1. 直接解析
+      try { return JSON.parse(text); } catch { /* */ }
+
+      // 2. 去掉 markdown 代码块
+      const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        try { return JSON.parse(codeBlockMatch[1].trim()); } catch { /* */ }
       }
+
+      // 3. 找最后一个 JSON 对象（AI 可能前后有文字）
+      const candidates = text.match(/\{[\s\S]*?\}|\[[\s\S]*?\]/g) || [];
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        try { return JSON.parse(candidates[i]); } catch { /* */ }
+      }
+
+      // 4. 去掉常见 JSON 无效字符后重试
+      const cleaned = text
+        .replace(/,\s*([}\]])/g, "$1")       // 去掉拖尾逗号
+        .replace(/\/\*[\s\S]*?\*\//g, "")   // 去掉注释
+        .replace(/\/\/.*$/gm, "")            // 去掉行注释
+        .replace(/:\s*'/g, ': "')            // 单引号变双引号（简单情况）
+        .replace(/'\s*:/g, '":');
+      try { return JSON.parse(cleaned); } catch { /* */ }
+
+      return null;
+    }
+
+    const parsed = tryParseJSON(rawText);
+    if (parsed === null) {
+      console.error("JSON parse failure, raw text:", rawText.slice(0, 500));
+      return NextResponse.json(
+        { error: "AI 返回格式有误，请重试" },
+        { status: 500 }
+      );
     }
 
     // 防御：如果 AI 返回的是直接数组而非对象，包装成标准格式
@@ -178,8 +201,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Schedule API error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    const isJSONError = msg.includes("JSON") || msg.includes("Unexpected");
     return NextResponse.json(
-      { error: "生成日程时出错，请检查 API 配置" },
+      { error: isJSONError ? "AI 返回格式有误，请重试" : "生成日程时出错，请检查 API 配置" },
       {  status: 500 }
     );
   }
