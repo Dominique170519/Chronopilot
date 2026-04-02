@@ -18,3 +18,4 @@ yarn-error.log*
 .env*.local
 
 .vercel
+tsconfig.tsbuildinfo

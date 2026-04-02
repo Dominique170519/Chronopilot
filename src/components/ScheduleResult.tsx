@@ -11,6 +11,10 @@ interface Props {
   energy: EnergyLevel;
   onRerange: (changes: string) => void;
   onRerangeLoading: boolean;
+  // 日历上下文
+  schedules?: Record<string, ScheduleResult>;
+  selectedDate?: string;
+  onSelectDate?: (date: string) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,18 +123,57 @@ export default function ScheduleResult({
   energy,
   onRerange,
   onRerangeLoading,
+  schedules = {},
+  selectedDate,
+  onSelectDate,
 }: Props) {
   const [changes, setChanges] = useState("");
 
+  // ── 骨架屏 ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-3xl border border-white/10 bg-white/5 py-24 backdrop-blur-xl">
-        <div className="relative mb-5">
-          <div className="w-14 h-14 rounded-full border-2 border-blue-500/20 border-t-blue-400 animate-spin" />
-          <div className="absolute inset-0 rounded-full border-2 border-blue-500/10 animate-pulse" />
+      <div className="space-y-4 animate-pulse">
+        {/* 策略卡骨架 */}
+        <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
+          <div className="flex gap-2 mb-4">
+            <div className="h-5 w-24 rounded-full bg-white/8" />
+            <div className="h-5 w-16 rounded-full bg-white/5" />
+            <div className="h-5 w-16 rounded-full bg-white/5" />
+          </div>
+          <div className="h-5 w-3/4 rounded-lg bg-white/8 mb-3" />
+          <div className="space-y-2">
+            <div className="h-3 w-full rounded bg-white/5" />
+            <div className="h-3 w-5/6 rounded bg-white/5" />
+            <div className="h-3 w-4/5 rounded bg-white/5" />
+          </div>
         </div>
-        <p className="text-sm text-white/40 mb-1">AI 正在规划你的日程</p>
-        <p className="text-xs text-white/25">先做判断，再做安排...</p>
+
+        {/* 时间轴骨架 */}
+        <div className="rounded-3xl border border-white/10 bg-white/5 overflow-hidden p-5">
+          <div className="h-3 w-24 rounded bg-white/5 mb-4" />
+          <div className="flex gap-3" style={{ height: "432px" }}>
+            {/* 刻度骨架 */}
+            <div className="w-12 shrink-0 space-y-0">
+              {Array.from({ length: 16 }, (_, i) => (
+                <div key={i} className="h-px bg-white/[0.04]" style={{ marginTop: "26px" }} />
+              ))}
+            </div>
+            {/* 内容骨架 */}
+            <div className="flex-1 relative space-y-3">
+              {/* 网格线 */}
+              {Array.from({ length: 16 }, (_, i) => (
+                <div key={i} className="absolute left-0 right-0 border-t border-white/[0.04]" style={{ top: `${i * 6.25}%` }} />
+              ))}
+              {/* 任务块骨架 */}
+              <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: "6.25%", height: "18.75%" }} />
+              <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: "25%", height: "12.5%" }} />
+              <div className="absolute left-1 right-1 rounded-xl bg-green-500/10 border border-l-2 border-l-green-500/30" style={{ top: "37.5%", height: "6.25%" }} />
+              <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: "43.75%", height: "18.75%" }} />
+              <div className="absolute left-1 right-1 rounded-xl bg-white/4 border border-l-2 border-l-white/20" style={{ top: "62.5%", height: "6.25%" }} />
+              <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: "68.75%", height: "18.75%" }} />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

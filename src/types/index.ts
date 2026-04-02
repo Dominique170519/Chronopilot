@@ -148,6 +148,60 @@ function diffMinutes(end: string, start: string): number {
 export type EnergyLevel = "high" | "medium" | "low";
 export type ScheduleMode = "efficient" | "balanced" | "easy";
 
+// ── 周视图工具 ────────────────────────────────────────────────────────────────
+
+export type WeekDay = {
+  date: string;        // "YYYY-MM-DD"
+  dayLabel: string;     // "周一" / "周二" ...
+  dayNum: string;       // "1" / "2" ...
+  monthLabel: string;   // "4月" / "12月" ...
+  isToday: boolean;
+  isSelected: boolean;
+  hasSchedule: boolean;
+};
+
+/** 获取以给定日期为基准的一周的 7 天信息 */
+export function getWeekDays(baseDate: Date, selectedDate: string): WeekDay[] {
+  const today = new Date();
+  const todayStr = formatDateStr(today);
+  const sel = selectedDate || todayStr;
+
+  const dow = baseDate.getDay(); // 0=Sun
+  const monday = new Date(baseDate);
+  monday.setDate(baseDate.getDate() - ((dow + 6) % 7)); // Mon
+
+  const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const str = formatDateStr(d);
+    return {
+      date: str,
+      dayLabel: dayNames[i],
+      dayNum: String(d.getDate()),
+      monthLabel: `${d.getMonth() + 1}月`,
+      isToday: str === todayStr,
+      isSelected: str === sel,
+      hasSchedule: false, // filled by caller
+    };
+  });
+}
+
+/** Date → "YYYY-MM-DD" */
+export function formatDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** "YYYY-MM-DD" → Date */
+export function parseDateStr(str: string): Date {
+  const [y, m, day] = str.split("-").map(Number);
+  return new Date(y, m - 1, day);
+}
+
 export interface ScheduleRequest {
   tasks: Task[];
   energy: EnergyLevel;
