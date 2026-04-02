@@ -15,7 +15,6 @@ interface Props {
   schedules?: Record<string, ScheduleResult>;
   selectedDate?: string;
   onSelectDate?: (date: string) => void;
-  /** 用户原始输入的任务列表，用于匹配时间轴上的色块 */
   userTasks?: Task[];
 }
 
@@ -28,28 +27,36 @@ function parseTime(time: string | undefined): number {
   return parts[0] * 60 + parts[1];
 }
 
-/** 把任务名规范化为比较用的小写字符串（去空格、符号） */
 function norm(s: string) {
   return s.replace(/\s+/g, "").replace(/[^\w\u4e00-\u9fff]/g, "").toLowerCase();
 }
 
 /**
- * 将 AI 返回的 schedule 项与用户原始任务匹配
- * 只返回能匹配到用户任务的项目（排除 AI 自动插入的休息/缓冲等）
+ * 判断 schedule 项是否匹配用户原始任务
  */
-function matchUserTasks(
-  items: ReturnType<typeof normalizeScheduleItems>,
-  userTasks: Task[]
-): ReturnType<typeof normalizeScheduleItems> {
-  if (!userTasks || userTasks.length === 0) return items;
-  return items.filter((item) => {
-    const itemNorm = norm(item.title);
-    return userTasks.some((t) => {
-      const tNorm = norm(t.text);
-      // 完全包含匹配：AI 任务名包含用户任务名，或反之
-      return itemNorm.includes(tNorm) || tNorm.includes(itemNorm);
-    });
+function isUserTask(item: ReturnType<typeof normalizeScheduleItems>[0], userTasks: Task[]) {
+  if (!userTasks || userTasks.length === 0) return false;
+  const itemNorm = norm(item.title);
+  return userTasks.some((t) => {
+    const tNorm = norm(t.text);
+    return itemNorm.includes(tNorm) || tNorm.includes(itemNorm);
   });
+}
+
+// ── 时间轴常量 ───────────────────────────────────────────────────────────────
+const DAY_START = 8;   // 08:00
+const DAY_END   = 23;  // 23:00
+const PX_PER_H  = 72;  // 每小时像素高度
+const TOTAL_PX  = (DAY_END - DAY_START) * PX_PER_H; // 1080px
+
+function timeToPx(time: string | undefined): number {
+  const min = parseTime(time);
+  if (isNaN(min)) return -1;
+  return ((min - DAY_START * 60) / 60) * PX_PER_H;
+}
+
+function durToPx(duration: number): number {
+  return (duration / 60) * PX_PER_H;
 }
 
 // ── 类型配置 ─────────────────────────────────────────────────────────────────
@@ -87,13 +94,22 @@ function SkeletonLoader() {
       </div>
       <div className="rounded-3xl border border-white/10 bg-white/5 overflow-hidden p-5">
         <div className="h-3 w-24 rounded bg-white/5 mb-4" />
-        <div className="space-y-2">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="flex gap-3 items-center">
-              <div className="h-8 w-12 rounded-lg bg-white/5 shrink-0" />
-              <div className="flex-1 h-8 rounded-lg bg-white/5" />
-            </div>
-          ))}
+        <div className="flex" style={{ height: `${TOTAL_PX}px` }}>
+          <div className="w-12 shrink-0">
+            {Array.from({ length: 16 }, (_, i) => (
+              <div key={i} style={{ height: `${PX_PER_H}px` }} className="flex items-end pb-1 justify-end pr-3">
+                <div className="h-2 w-6 rounded bg-white/5" />
+              </div>
+            ))}
+          </div>
+          <div className="flex-1 relative border-l border-white/[0.04]">
+            {Array.from({ length: 16 }, (_, i) => (
+              <div key={i} style={{ height: `${PX_PER_H}px` }} className="border-t border-white/[0.04]" />
+            ))}
+            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/20 border border-l-2 border-l-blue-400" style={{ top: "0px", height: "90px" }} />
+            <div className="absolute left-1 right-1 rounded-xl bg-white/3 border border-l-2 border-l-green-400" style={{ top: "96px", height: "48px" }} />
+            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/20 border border-l-2 border-l-blue-400" style={{ top: "150px", height: "84px" }} />
+          </div>
         </div>
       </div>
     </div>
@@ -154,11 +170,8 @@ export default function ScheduleResult({
 
   const allItems = normalizeScheduleItems(rawSchedule);
 
-  // 只保留匹配到用户任务的项目（过滤掉 AI 自动插入的休息/缓冲等）
-  const userItems = matchUserTasks(allItems, userTasks);
-
   // 按开始时间排序
-  const sortedItems = [...userItems].sort((a, b) => {
+  const sortedItems = [...allItems].sort((a, b) => {
     const aT = parseTime(a.startTime);
     const bT = parseTime(b.startTime);
     if (isNaN(aT)) return 1;
@@ -166,10 +179,11 @@ export default function ScheduleResult({
     return aT - bT;
   });
 
-  // 未安排的任务
   const droppedTasks: { task: string; reason?: string }[] = Array.isArray(result)
     ? []
     : (result.droppedTasks ?? []);
+
+  const hours = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
 
   return (
     <div className="space-y-4">
@@ -197,66 +211,101 @@ export default function ScheduleResult({
         )}
       </div>
 
-      {/* ── 时间轴：柱状列表 ── */}
+      {/* ── 时间轴 ── */}
       <div className="rounded-3xl border border-white/10 bg-white/5 overflow-hidden shadow-panel backdrop-blur-xl">
         <div className="px-5 pt-4 pb-3">
           <h3 className="text-xs uppercase tracking-widest text-white/30 font-semibold mb-0.5">明日安排</h3>
-          <p className="text-xs text-white/20">
-            共 {sortedItems.length} 项 · 从早到晚排列
-          </p>
+          <p className="text-xs text-white/20">从早到晚 · {sortedItems.length} 个时段</p>
         </div>
 
-        <div className="px-5 pb-4 space-y-2">
-          {sortedItems.length === 0 && (
-            <p className="text-sm text-white/30 text-center py-6">暂无已安排的任务</p>
-          )}
-          {sortedItems.map((item, i) => {
-            const cfg = typeConfig[item.type] || typeConfig.buffer;
-            return (
+        {/* 时间轴主体 */}
+        <div className="flex px-5 pb-4" style={{ height: `${TOTAL_PX}px` }}>
+          {/* 左：小时刻度 */}
+          <div className="w-12 shrink-0">
+            {hours.map((h) => (
               <div
-                key={i}
-                className={`flex items-center gap-3 rounded-2xl border-l-4 ${cfg.bg} ${cfg.border} px-4 py-3`}
+                key={h}
+                className="flex items-end justify-end pr-3"
+                style={{ height: `${PX_PER_H}px` }}
               >
-                {/* 时间 */}
-                <div className="shrink-0 text-center w-14">
-                  <div className="text-sm font-mono font-semibold text-white/70 tabular-nums leading-none">
-                    {item.startTime}
-                  </div>
-                  <div className="text-[10px] text-white/30 mt-0.5">至 {item.endTime}</div>
-                </div>
+                <span className="text-[10px] text-white/25 tabular-nums">
+                  {String(h).padStart(2, "0")}:00
+                </span>
+              </div>
+            ))}
+          </div>
 
-                {/* 分隔线 */}
-                <div className="w-px h-8 bg-white/10 shrink-0" />
+          {/* 右：内容区 */}
+          <div className="flex-1 relative border-l border-white/[0.04]">
+            {/* 水平网格线 */}
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute left-0 right-0 border-t border-white/[0.04]"
+                style={{ top: `${(h - DAY_START) * PX_PER_H}px` }}
+              />
+            ))}
 
-                {/* 内容 */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* 任务名 — 完全显示，不截断 */}
-                    <span className={`text-sm font-medium ${cfg.text}`}>{item.title}</span>
-                    {/* 类型标签 */}
-                    <span className={`shrink-0 text-[10px] px-1.5 py-px rounded-full border ${cfg.bg} ${cfg.text} border-white/10`}>
-                      {cfg.label}
-                    </span>
-                    {/* 时长 */}
-                    <span className="shrink-0 text-[10px] text-white/30">
-                      {item.duration >= 60
-                        ? `${Math.floor(item.duration / 60)}h${item.duration % 60 ? item.duration % 60 + "m" : ""}`
-                        : `${item.duration}m`}
-                    </span>
+            {/* 现在时间指示线 */}
+            {(() => {
+              const now = new Date();
+              const nowMin = now.getHours() * 60 + now.getMinutes();
+              if (nowMin >= DAY_START * 60 && nowMin < DAY_END * 60) {
+                const topPx = ((nowMin - DAY_START * 60) / 60) * PX_PER_H;
+                return (
+                  <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: `${topPx}px` }}>
+                    <div className="w-2 h-2 rounded-full bg-red-400 -ml-px shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
+                    <div className="flex-1 h-px bg-red-400/40" />
                   </div>
-                  {/* 原因说明 */}
-                  {item.reason && (
-                    <p className={`text-xs mt-1 leading-relaxed ${cfg.text} opacity-60`}>
-                      {item.reason}
-                    </p>
+                );
+              }
+              return null;
+            })()}
+
+            {/* 任务块 */}
+            {sortedItems.map((item, i) => {
+              const topPx = timeToPx(item.startTime);
+              if (topPx < 0) return null;
+
+              const heightPx = durToPx(item.duration);
+              const cfg = typeConfig[item.type] || typeConfig.buffer;
+              const isUser = isUserTask(item, userTasks);
+
+              return (
+                <div
+                  key={i}
+                  className="absolute left-1 right-1 overflow-hidden"
+                  style={{ top: `${topPx}px`, height: `${heightPx}px` }}
+                >
+                  {isUser ? (
+                    // 用户任务：有色块
+                    <div className={`w-full h-full rounded-xl border-l-2 ${cfg.bg} ${cfg.border} px-2.5 py-1.5 overflow-hidden flex flex-col justify-between`}>
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="text-[10px] font-mono text-white/40 shrink-0 tabular-nums leading-none">{item.startTime}</span>
+                        <span className={`text-xs font-medium leading-snug truncate ${cfg.text}`}>{item.title}</span>
+                      </div>
+                      <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                        <span className={`shrink-0 text-[9px] px-1 py-px rounded border ${cfg.bg} ${cfg.text} border-white/10`}>{cfg.label}</span>
+                        <span className={`text-[9px] leading-relaxed ${cfg.text} opacity-60 line-clamp-1 overflow-hidden`}>{item.reason}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    // AI 插入任务：仅文字，无色块
+                    <div className="w-full h-full flex flex-col justify-between pl-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[9px] font-mono text-white/25 shrink-0 tabular-nums leading-none">{item.startTime}</span>
+                        <span className="text-[10px] text-white/30 leading-snug truncate">{item.title}</span>
+                      </div>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-[8px] text-white/20 shrink-0">{cfg.label}</span>
+                        <span className="text-[8px] text-white/15 leading-snug truncate overflow-hidden">{item.reason}</span>
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                {/* 右侧色点 */}
-                <div className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 
