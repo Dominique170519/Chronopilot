@@ -14,6 +14,7 @@ import type {
   ScheduleMode,
   ScheduleResult as ScheduleResultType,
 } from "@/types";
+import type { NormalizedScheduleItem } from "@/types";
 
 const STATE_KEY = "chronopilot_state";
 const SCHEDULES_KEY = "chronopilot_schedules";
@@ -357,6 +358,7 @@ export default function Home() {
                 schedules={schedules}
                 selectedDate={selectedDate}
                 onSelectDate={handleSelectDate}
+                userTasks={tasks}
               />
             </div>
           </section>

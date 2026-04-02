@@ -1,6 +1,7 @@
 "use client";
 import type { ScheduleResult, ScheduleMode, EnergyLevel } from "@/types";
 import { normalizeScheduleItems } from "@/types";
+import type { Task } from "@/types";
 import { useState } from "react";
 
 interface Props {
@@ -14,28 +15,50 @@ interface Props {
   schedules?: Record<string, ScheduleResult>;
   selectedDate?: string;
   onSelectDate?: (date: string) => void;
+  /** 用户原始输入的任务列表，用于匹配时间轴上的色块 */
+  userTasks?: Task[];
 }
 
-// ── 时间轴常量 ───────────────────────────────────────────────────────────────
-const DAY_START = 8;  // 08:00
-const DAY_END   = 23; // 23:00
-const PX_PER_Hour = 72; // 每小时视觉高度（px）
+// ── 工具函数 ─────────────────────────────────────────────────────────────────
 
-function minutesToHours(minutes: number) { return minutes / 60; }
+function parseTime(time: string | undefined): number {
+  if (!time) return NaN;
+  const parts = time.split(":").map(Number);
+  if (parts.length < 2 || parts.some(isNaN)) return NaN;
+  return parts[0] * 60 + parts[1];
+}
 
-// 时间轴总高度
-const timelinePx = (DAY_END - DAY_START) * PX_PER_Hour; // 15h × 72 = 1080px
+/** 把任务名规范化为比较用的小写字符串（去空格、符号） */
+function norm(s: string) {
+  return s.replace(/\s+/g, "").replace(/[^\w\u4e00-\u9fff]/g, "").toLowerCase();
+}
 
-// 任务块最小高度（px），确保短任务也可见
-const MIN_BLOCK_PX = 36;
+/**
+ * 将 AI 返回的 schedule 项与用户原始任务匹配
+ * 只返回能匹配到用户任务的项目（排除 AI 自动插入的休息/缓冲等）
+ */
+function matchUserTasks(
+  items: ReturnType<typeof normalizeScheduleItems>,
+  userTasks: Task[]
+): ReturnType<typeof normalizeScheduleItems> {
+  if (!userTasks || userTasks.length === 0) return items;
+  return items.filter((item) => {
+    const itemNorm = norm(item.title);
+    return userTasks.some((t) => {
+      const tNorm = norm(t.text);
+      // 完全包含匹配：AI 任务名包含用户任务名，或反之
+      return itemNorm.includes(tNorm) || tNorm.includes(itemNorm);
+    });
+  });
+}
 
 // ── 类型配置 ─────────────────────────────────────────────────────────────────
-const typeConfig: Record<string, { bg: string; border: string; label: string; text: string; reason: string }> = {
-  focus:    { bg: "bg-blue-500/20",   border: "border-l-blue-400",    label: "深度工作", text: "text-blue-200",  reason: "text-blue-400/70" },
-  light:    { bg: "bg-white/8",       border: "border-l-white/50",    label: "轻任务",   text: "text-white/75",  reason: "text-white/35" },
-  recovery: { bg: "bg-green-500/15",  border: "border-l-green-400",   label: "恢复",     text: "text-green-200", reason: "text-green-400/70" },
-  flex:     { bg: "bg-orange-500/15", border: "border-l-orange-400",   label: "弹性时间", text: "text-orange-200",reason: "text-green-400/70" },
-  buffer:   { bg: "bg-white/4",       border: "border-l-white/25",    label: "过渡",     text: "text-white/45",  reason: "text-white/25" },
+const typeConfig: Record<string, { bg: string; border: string; label: string; text: string; dot: string }> = {
+  focus:    { bg: "bg-blue-500/20",   border: "border-l-blue-400",    label: "深度工作", text: "text-blue-200",  dot: "bg-blue-400" },
+  light:    { bg: "bg-white/8",       border: "border-l-white/50",    label: "轻任务",   text: "text-white/75",  dot: "bg-white/50" },
+  recovery: { bg: "bg-green-500/15",  border: "border-l-green-400",   label: "恢复",     text: "text-green-200", dot: "bg-green-400" },
+  flex:     { bg: "bg-orange-500/15", border: "border-l-orange-400",  label: "弹性时间", text: "text-orange-200",dot: "bg-orange-400" },
+  buffer:   { bg: "bg-white/4",       border: "border-l-white/25",    label: "过渡",     text: "text-white/45",  dot: "bg-white/25" },
 };
 
 const modeLabel: Record<ScheduleMode, string> = {
@@ -44,13 +67,6 @@ const modeLabel: Record<ScheduleMode, string> = {
 const energyLabel: Record<EnergyLevel, string> = {
   high: "精力充沛", medium: "精力一般", low: "精力疲惫",
 };
-
-function parseTime(time: string | undefined): number {
-  if (!time) return NaN;
-  const parts = time.split(":").map(Number);
-  if (parts.length < 2 || parts.some(isNaN)) return NaN;
-  return parts[0] * 60 + parts[1];
-}
 
 // ── 骨架屏 ────────────────────────────────────────────────────────────────────
 function SkeletonLoader() {
@@ -71,24 +87,13 @@ function SkeletonLoader() {
       </div>
       <div className="rounded-3xl border border-white/10 bg-white/5 overflow-hidden p-5">
         <div className="h-3 w-24 rounded bg-white/5 mb-4" />
-        <div className="flex" style={{ height: `${timelinePx}px` }}>
-          <div className="w-12 shrink-0">
-            {Array.from({ length: 16 }, (_, i) => (
-              <div key={i} style={{ height: `${PX_PER_Hour}px` }} className="flex items-end pb-1 justify-end pr-3">
-                <div className="h-2 w-6 rounded bg-white/5" />
-              </div>
-            ))}
-          </div>
-          <div className="flex-1 relative border-l border-white/[0.04]">
-            {Array.from({ length: 16 }, (_, i) => (
-              <div key={i} style={{ height: `${PX_PER_Hour}px` }} className="border-t border-white/[0.04]" />
-            ))}
-            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: `${PX_PER_Hour * 0}px`, height: "90px" }} />
-            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: `${PX_PER_Hour * 2}px`, height: "72px" }} />
-            <div className="absolute left-1 right-1 rounded-xl bg-green-500/10 border border-l-2 border-l-green-500/30" style={{ top: `${PX_PER_Hour * 3.5}px`, height: "48px" }} />
-            <div className="absolute left-1 right-1 rounded-xl bg-blue-500/10 border border-l-2 border-l-blue-500/30" style={{ top: `${PX_PER_Hour * 4}px`, height: "96px" }} />
-            <div className="absolute left-1 right-1 rounded-xl bg-white/4 border border-l-2 border-l-white/20" style={{ top: `${PX_PER_Hour * 6}px`, height: "36px" }} />
-          </div>
+        <div className="space-y-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex gap-3 items-center">
+              <div className="h-8 w-12 rounded-lg bg-white/5 shrink-0" />
+              <div className="flex-1 h-8 rounded-lg bg-white/5" />
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -125,83 +130,11 @@ function EmptyState() {
   );
 }
 
-// ── 单个任务块 ────────────────────────────────────────────────────────────────
-interface BlockProps {
-  title: string;
-  startTime: string;
-  endTime: string;
-  duration: number;
-  type: string;
-  reason?: string;
-  isDropped?: boolean;
-  isLast?: boolean;
-}
-
-function ScheduleBlock({ title, startTime, endTime, duration, type, reason, isDropped }: BlockProps) {
-  const cfg = typeConfig[type] || typeConfig.buffer;
-  // 高度 = max(实际分钟对应px, 最小px)
-  const heightPx = Math.max(duration * (PX_PER_Hour / 60), MIN_BLOCK_PX);
-
-  if (isDropped) {
-    return (
-      <div
-        className="mb-1 flex-shrink-0 rounded-xl border border-dashed border-white/20 bg-white/3 overflow-hidden"
-        style={{ height: `${heightPx}px` }}
-        title={`未安排：${title} — ${reason || "时间不足或优先级不够"}`}
-      >
-        <div className="w-full h-full px-2.5 py-1.5 flex flex-col justify-between gap-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[10px] font-mono text-white/30 shrink-0 tabular-nums leading-none">{startTime}</span>
-            <span className="text-xs text-white/30 line-through truncate">{title}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[9px] px-1 py-px rounded border border-dashed border-white/20 text-white/25">
-              未安排
-            </span>
-            <span className="text-[9px] text-white/20 truncate">{reason || "时间不足"}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={`mb-1 flex-shrink-0 rounded-xl border-l-2 ${cfg.bg} ${cfg.border} overflow-hidden`}
-      style={{ height: `${heightPx}px` }}
-      title={title}
-    >
-      <div className="w-full h-full px-2.5 py-1.5 flex flex-col justify-between gap-0.5">
-        {/* 第1行：时间 + 任务名 */}
-        <div className="flex items-baseline gap-1.5 min-w-0">
-          <span className="text-[10px] font-mono text-white/40 shrink-0 tabular-nums leading-none">
-            {startTime}
-          </span>
-          <span className={`text-xs font-medium leading-snug ${cfg.text} line-clamp-2`}>
-            {title}
-          </span>
-        </div>
-        {/* 第2行：类型标签 + 原因 */}
-        <div className="flex items-start gap-1 min-w-0 overflow-hidden">
-          <span className={`shrink-0 text-[9px] px-1 py-px rounded border leading-relaxed ${cfg.bg} ${cfg.text} border-white/10`}>
-            {cfg.label}
-          </span>
-          {reason && (
-            <span className={`text-[9px] leading-relaxed ${cfg.reason} line-clamp-2 overflow-hidden`}>
-              {reason}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 export default function ScheduleResult({
   result, loading, error, mode, energy,
   onRerange, onRerangeLoading,
-  schedules, selectedDate, onSelectDate,
+  userTasks = [],
 }: Props) {
   const [changes, setChanges] = useState("");
 
@@ -214,25 +147,29 @@ export default function ScheduleResult({
   );
   if (!result) return <EmptyState />;
 
-  // ── 数据标准化 ──────────────────────────────────────────────────────────────
+  // ── 数据 ────────────────────────────────────────────────────────────────────
   const rawSchedule = Array.isArray(result)
     ? result
     : result.schedule ?? (result as any).items ?? (result as any).data ?? [];
 
-  const scheduleItems = normalizeScheduleItems(rawSchedule);
+  const allItems = normalizeScheduleItems(rawSchedule);
+
+  // 只保留匹配到用户任务的项目（过滤掉 AI 自动插入的休息/缓冲等）
+  const userItems = matchUserTasks(allItems, userTasks);
+
+  // 按开始时间排序
+  const sortedItems = [...userItems].sort((a, b) => {
+    const aT = parseTime(a.startTime);
+    const bT = parseTime(b.startTime);
+    if (isNaN(aT)) return 1;
+    if (isNaN(bT)) return -1;
+    return aT - bT;
+  });
+
+  // 未安排的任务
   const droppedTasks: { task: string; reason?: string }[] = Array.isArray(result)
     ? []
     : (result.droppedTasks ?? []);
-
-  // 按时长降序排列，用于分组显示
-  const sortedItems = [...scheduleItems].sort((a, b) => {
-    const aStart = parseTime(a.startTime);
-    const bStart = parseTime(b.startTime);
-    return (isNaN(aStart) ? 0 : aStart) - (isNaN(bStart) ? 0 : bStart);
-  });
-
-  // 生成时间轴刻度数（8点到23点，每小时一个）
-  const hours = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
 
   return (
     <div className="space-y-4">
@@ -253,115 +190,103 @@ export default function ScheduleResult({
             {result.decisions.map((d, i) => (
               <div key={i} className="flex items-start gap-2.5">
                 <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400/60 shrink-0" />
-                <p className="text-xs text-white/45 leading-relaxed line-clamp-3">{d}</p>
+                <p className="text-xs text-white/45 leading-relaxed">{d}</p>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* ── 时间轴 ── */}
+      {/* ── 时间轴：柱状列表 ── */}
       <div className="rounded-3xl border border-white/10 bg-white/5 overflow-hidden shadow-panel backdrop-blur-xl">
         <div className="px-5 pt-4 pb-3">
           <h3 className="text-xs uppercase tracking-widest text-white/30 font-semibold mb-0.5">明日安排</h3>
-          <p className="text-xs text-white/20">从早到晚展示 AI 为你规划的节奏。</p>
+          <p className="text-xs text-white/20">
+            共 {sortedItems.length} 项 · 从早到晚排列
+          </p>
         </div>
 
-        {/* 时间轴主体：flex，左刻度 + 右内容 */}
-        <div className="flex pb-4 px-5" style={{ height: `${timelinePx}px` }}>
-          {/* 左：小时刻度 */}
-          <div className="w-12 shrink-0">
-            {hours.map((h) => (
+        <div className="px-5 pb-4 space-y-2">
+          {sortedItems.length === 0 && (
+            <p className="text-sm text-white/30 text-center py-6">暂无已安排的任务</p>
+          )}
+          {sortedItems.map((item, i) => {
+            const cfg = typeConfig[item.type] || typeConfig.buffer;
+            return (
               <div
-                key={h}
-                className="flex items-end justify-end pr-3"
-                style={{ height: `${PX_PER_Hour}px` }}
+                key={i}
+                className={`flex items-center gap-3 rounded-2xl border-l-4 ${cfg.bg} ${cfg.border} px-4 py-3`}
               >
-                <span className="text-[10px] text-white/25 tabular-nums">
-                  {String(h).padStart(2, "0")}:00
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* 右：内容区，含网格线 */}
-          <div className="flex-1 relative border-l border-white/[0.04]">
-            {/* 水平网格线 */}
-            {hours.map((h) => (
-              <div
-                key={h}
-                className="absolute left-0 right-0 border-t border-white/[0.04]"
-                style={{ top: `${(h - DAY_START) * PX_PER_Hour}px` }}
-              />
-            ))}
-
-            {/* 现在时间指示线 */}
-            {(() => {
-              const now = new Date();
-              const nowMin = now.getHours() * 60 + now.getMinutes();
-              if (nowMin >= DAY_START * 60 && nowMin < DAY_END * 60) {
-                const topPx = ((nowMin - DAY_START * 60) / 60) * PX_PER_Hour;
-                return (
-                  <div
-                    className="absolute left-0 right-0 z-20 flex items-center pointer-events-none"
-                    style={{ top: `${topPx}px` }}
-                  >
-                    <div className="w-2 h-2 rounded-full bg-red-400 -ml-px shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
-                    <div className="flex-1 h-px bg-red-400/40" />
+                {/* 时间 */}
+                <div className="shrink-0 text-center w-14">
+                  <div className="text-sm font-mono font-semibold text-white/70 tabular-nums leading-none">
+                    {item.startTime}
                   </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* 已安排任务块 */}
-            {sortedItems.map((item, i) => {
-              const startMin = parseTime(item.startTime);
-              if (isNaN(startMin)) return null;
-              const topPx = ((startMin - DAY_START * 60) / 60) * PX_PER_Hour;
-              return (
-                <div
-                  key={`sched-${i}`}
-                  className="absolute left-1 right-1"
-                  style={{ top: `${topPx}px` }}
-                >
-                  <ScheduleBlock
-                    title={item.title}
-                    startTime={item.startTime}
-                    endTime={item.endTime}
-                    duration={item.duration}
-                    type={item.type}
-                    reason={item.reason}
-                  />
+                  <div className="text-[10px] text-white/30 mt-0.5">至 {item.endTime}</div>
                 </div>
-              );
-            })}
 
-            {/* 未安排任务块（底部灰显） */}
-            {droppedTasks.length > 0 && sortedItems.length > 0 && (
-              <div
-                className="absolute left-1 right-1 bottom-0"
-                style={{ maxHeight: `${PX_PER_Hour * 3}px` }}
-              >
-                <div className="rounded-xl border border-dashed border-white/10 bg-white/3 p-2 overflow-y-auto max-h-full">
-                  <p className="text-[10px] uppercase tracking-widest text-white/20 mb-2 font-semibold">
-                    未安排 · {droppedTasks.length} 项
-                  </p>
-                  <div className="space-y-1">
-                    {droppedTasks.map((t, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full border border-orange-500/40 shrink-0" />
-                        <span className="text-xs text-white/40 line-through truncate flex-1">{t.task}</span>
-                        <span className="text-[9px] text-white/20 shrink-0">{t.reason || "时间不足"}</span>
-                      </div>
-                    ))}
+                {/* 分隔线 */}
+                <div className="w-px h-8 bg-white/10 shrink-0" />
+
+                {/* 内容 */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* 任务名 — 完全显示，不截断 */}
+                    <span className={`text-sm font-medium ${cfg.text}`}>{item.title}</span>
+                    {/* 类型标签 */}
+                    <span className={`shrink-0 text-[10px] px-1.5 py-px rounded-full border ${cfg.bg} ${cfg.text} border-white/10`}>
+                      {cfg.label}
+                    </span>
+                    {/* 时长 */}
+                    <span className="shrink-0 text-[10px] text-white/30">
+                      {item.duration >= 60
+                        ? `${Math.floor(item.duration / 60)}h${item.duration % 60 ? item.duration % 60 + "m" : ""}`
+                        : `${item.duration}m`}
+                    </span>
                   </div>
+                  {/* 原因说明 */}
+                  {item.reason && (
+                    <p className={`text-xs mt-1 leading-relaxed ${cfg.text} opacity-60`}>
+                      {item.reason}
+                    </p>
+                  )}
                 </div>
+
+                {/* 右侧色点 */}
+                <div className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
               </div>
-            )}
-          </div>
+            );
+          })}
         </div>
       </div>
+
+      {/* ── 未安排的任务 ── */}
+      {droppedTasks.length > 0 && (
+        <div className="rounded-3xl border border-orange-800/40 bg-orange-500/8 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-semibold text-orange-300">今天先不安排的事</span>
+            <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-px text-[10px] text-orange-400">
+              {droppedTasks.length} 项
+            </span>
+          </div>
+          <p className="text-xs text-orange-400/50 mb-4 leading-relaxed">
+            这些任务并不是不重要，而是今天优先级不够高，或时间不够合理。
+          </p>
+          <div className="space-y-2">
+            {droppedTasks.map((t, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-1.5 h-1.5 rounded-full border border-orange-500/40 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-orange-200/70 line-through">{t.task}</span>
+                  {t.reason && (
+                    <span className="text-xs text-orange-400/50 ml-2">{t.reason}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── 重新安排 ── */}
       <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl">
