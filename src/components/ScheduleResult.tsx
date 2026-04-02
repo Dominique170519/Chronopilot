@@ -164,7 +164,7 @@ export default function ScheduleResult({
     return ((timeMinutes - DAY_START * 60) / totalMinutes) * 100;
   }
   function durationToHeightPct(durationMinutes: number): number {
-    return Math.max((durationMinutes / totalMinutes) * 100, 4);
+    return Math.max((durationMinutes / totalMinutes) * 100, 1);
   }
 
   return (
@@ -209,7 +209,7 @@ export default function ScheduleResult({
         </div>
 
         {/* 时间轴主体：横向 flex，左=刻度标签，右=内容区 */}
-        <div className="flex pb-4" style={{ height: `${Math.round((totalMinutes / 60) * 52)}px` }}>
+        <div className="flex pb-4" style={{ height: `${Math.round((totalMinutes / 60) * 72)}px` }}>
 
           {/* 左列：小时刻度标签，始终紧贴内容区左边界 */}
           <div className="w-12 shrink-0 relative">
